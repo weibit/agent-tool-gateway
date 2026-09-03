@@ -140,3 +140,21 @@ async def test_harness_runs_without_gateway():
     agent = Agent(name="t", model=ScriptedModel([[tool_call("echo", {"text": "hi"}, "c0")]]), tools=[echo])
     r = await Runner.run(agent, "go", run_config=CFG)
     assert outputs(r) == ["echo:hi"] and r.final_output == "done"
+
+
+def test_default_identity_reads_context_or_raises():
+    gw, _, ident = make()
+    assert default_identity(SimpleNamespace(context=ident)) == (ident.principal, ident.agent, ident.session)
+    with pytest.raises(RuntimeError, match="principal"):
+        default_identity(SimpleNamespace(context={"who": "bit"}))
+    with pytest.raises(RuntimeError):
+        default_identity(SimpleNamespace(context=None))
+
+
+def test_manifest_from_function_tool_copies_schema_and_applies_overrides():
+    m = manifest_from_function_tool(echo)
+    assert m.name == "echo" and m.description == "Echo the text back."
+    assert m.input_schema["required"] == ["text"] and m.side_effect is SideEffect.READ
+    m2 = manifest_from_function_tool(echo, side_effect="write", required_scopes=["x"], cost_usd=0.5)
+    assert m2.side_effect is SideEffect.WRITE and m2.required_scopes == frozenset({"x"}) and m2.cost_usd == 0.5
+    assert m2.input_schema == m.input_schema
