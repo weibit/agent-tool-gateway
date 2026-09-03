@@ -34,6 +34,7 @@ from agent_tool_gateway import (  # noqa: E402
 from agent_tool_gateway.adapters.pydantic_ai import (  # noqa: E402
     GatedToolset,
     default_identity,
+    gate_toolset,
     manifest_from_tool_def,
 )
 from agent_tool_gateway.stages import RulePolicy, TokenBucketLimiter, default_stages  # noqa: E402
@@ -277,3 +278,44 @@ async def test_budget_exhausted_while_pending_denies_on_resume():
         deps=ident,
     )
     assert returns(r2)[-1]["error"] == "budget_exceeded"
+
+
+async def test_output_guards_rewrite_what_the_model_sees():
+    gw, _, ident, ts = make()
+    r = await agent_for(gw, ts, [("leak", {}, "c12")]).run("go", deps=ident)
+    assert returns(r) == ["ssn [REDACTED]"]
+
+
+def test_run_sync_path():
+    gw, _, ident, ts = make()
+    r = agent_for(gw, ts, [("echo", {"text": "hi"}, "c13")]).run_sync("go", deps=ident)
+    assert returns(r) == ["echo:hi"]
+
+
+async def test_gate_outermost_sees_prefixed_names():
+    gw, audit, ident, ts = make()
+    gw.registry.register(manifest_from_tool_def(ts.tools["echo"].tool_def, name="x_echo", required_scopes=["echo"]))
+    gw.stages[2].policy.allow("x_echo")  # PolicyStage is third in default_stages
+    agent = Agent(
+        scripted([("x_echo", {"text": "hi"}, "c14")]),
+        toolsets=[gate_toolset(gw, ts.prefixed("x"))],
+        deps_type=Identity,
+        output_type=[str, DeferredToolRequests],
+    )
+    r = await agent.run("go", deps=ident)
+    assert returns(r) == ["echo:hi"] and audit.events[0].tool == "x_echo"
+
+
+async def test_tool_exception_releases_reservation_and_propagates():
+    gw, _, ident, ts = make(budget_limit_usd=0.05)
+
+    @ts.tool
+    def boom(ctx: RunContext[Identity]) -> str:
+        """Always fails."""
+        raise RuntimeError("kaboom")
+
+    gw.registry.register(manifest_from_tool_def(ts.tools["boom"].tool_def, cost_usd=0.01))
+    gw.stages[2].policy.allow("boom")
+    with pytest.raises(RuntimeError, match="kaboom"):
+        await agent_for(gw, ts, [("boom", {}, "c15")]).run("go", deps=ident)
+    assert ident.session.budget_reserved_usd == 0.0 and ident.session.budget_used_usd == 0.0
