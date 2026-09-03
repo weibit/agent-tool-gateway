@@ -17,7 +17,7 @@ from .errors import (
 )
 from .manifest import RiskTier, SideEffect, ToolManifest
 from .pipeline import BaseStage, Gateway, Stage
-from .registry import ToolRegistry
+from .registry import Resolver, ToolRegistry, glob_overlay, lookup
 
 __version__ = "0.1.0"
 
@@ -39,6 +39,7 @@ __all__ = [
     "NullAuditSink",
     "Principal",
     "RateLimited",
+    "Resolver",
     "RiskTier",
     "SchemaValidationError",
     "SessionState",
@@ -51,4 +52,6 @@ __all__ = [
     "ToolRegistry",
     "ToolResult",
     "ToolTimeout",
+    "glob_overlay",
+    "lookup",
 ]

@@ -49,6 +49,14 @@ Gateway.before(ctx)                              Gateway.after(ctx, result)
 `TRANSFORM` rewrites `ctx.args` in place and continues, so downstream stages evaluate the
 rewritten arguments. `DENY` and `REQUIRE_APPROVAL` short-circuit. `after` runs stages in reverse.
 
+## Registry and discovery
+
+`ToolRegistry.resolve(name)` walks layers: explicit manifests, then `resolvers` in order, then the
+global default. `glob_overlay` (operator rules keyed by glob) and `lookup` (exact names, e.g. discovery
+output) are the two built-in resolver factories. `discovery/` modules convert a source's self-description
+into manifests without connecting to anything; an untrusted source's claims are clamped and only an
+overlay above it can relax them. Reload by building a new registry and swapping it on the gateway.
+
 ## Public contract (stable)
 
 - `ToolManifest` and its enums

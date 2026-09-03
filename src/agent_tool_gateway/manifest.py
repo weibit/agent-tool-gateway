@@ -7,6 +7,7 @@ tool name alone.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any
@@ -46,3 +47,28 @@ class ToolManifest:
         from dataclasses import replace
 
         return replace(self, **kwargs)
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> ToolManifest:
+        """Build from plain data (YAML / JSON / overlay rules).
+
+        Enums accept their value (``"write"``) or name (``"HIGH"``); scope and tag
+        lists become frozensets. Unknown keys raise ``TypeError``.
+        """
+        kw = dict(data)
+        se = kw.get("side_effect")
+        if se is not None and not isinstance(se, SideEffect):
+            kw["side_effect"] = SideEffect(str(se).lower())
+        rt = kw.get("risk_tier")
+        if rt is not None and not isinstance(rt, RiskTier):
+            if isinstance(rt, int) or str(rt).isdigit():
+                kw["risk_tier"] = RiskTier(int(rt))
+            else:
+                try:
+                    kw["risk_tier"] = RiskTier[str(rt).upper()]
+                except KeyError:
+                    raise ValueError(f"unknown risk_tier: {rt!r}") from None
+        for key in ("required_scopes", "tags"):
+            if key in kw:
+                kw[key] = frozenset(kw[key])
+        return cls(**kw)

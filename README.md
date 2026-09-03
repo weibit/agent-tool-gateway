@@ -97,6 +97,27 @@ options = ClaudeAgentOptions(hooks=hooks)
 
 `DENY` → `permissionDecision: deny`, `REQUIRE_APPROVAL` → `ask`, `TRANSFORM` → `allow` + `updatedInput`. `PostToolUse` runs output guardrails and taint tagging and returns redacted/truncated content as `updatedToolOutput`; `PostToolUseFailure` releases the budget reservation. The SDK routes `ask` to your `can_use_tool` callback, so configure one or `ask` has nothing to answer it. See [`examples/claude_sdk_coding_agent.py`](examples/claude_sdk_coding_agent.py).
 
+## Loading tools on demand
+
+Production agents load tools you did not write, often hundreds of them from MCP servers. The registry resolves a name through layers, first hit wins: explicit manifests, then resolvers in order, then a global default.
+
+```python
+from agent_tool_gateway import ToolRegistry, glob_overlay, lookup
+from agent_tool_gateway.discovery import manifests_from_mcp, mcp_default
+
+discovered = manifests_from_mcp("github", tools_list_result)        # untrusted by default: clamped to WRITE/HIGH
+operator_overlay = glob_overlay({                                     # a human relaxes what they have reviewed
+    "mcp__github__get_*":  {"side_effect": "read", "risk_tier": "low"},
+    "mcp__github__list_*": {"side_effect": "read", "risk_tier": "low"},
+})
+registry = ToolRegistry(
+    resolvers=[operator_overlay, lookup(discovered), glob_overlay({"mcp__github__*": mcp_default("github")})],
+    default=ToolManifest("*", side_effect=SideEffect.WRITE, risk_tier=RiskTier.HIGH),
+)
+```
+
+Every manifest from a server carries `required_scopes={"mcp:<server>"}`, so a principal must be granted the server before any of its tools pass the scope stage. MCP annotations (`readOnlyHint`, `destructiveHint`, `openWorldHint`) map onto `side_effect` and `reaches_untrusted` for `trusted=True` servers only. On `tools/list_changed`, rebuild and swap: `gateway.registry = new_registry`. Contexts already in flight keep the manifest they were built with.
+
 ## Integration tiers
 
 | Tier | Mechanism | Frameworks | Status |
