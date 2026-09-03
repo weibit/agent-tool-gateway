@@ -13,6 +13,7 @@ agents = pytest.importorskip("agents")
 from agents import Agent, RunConfig, Runner, WebSearchTool, function_tool  # noqa: E402
 from agents.items import ModelResponse  # noqa: E402
 from agents.models.interface import Model  # noqa: E402
+from agents.tool_context import ToolContext  # noqa: E402
 from agents.usage import Usage  # noqa: E402
 from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText  # noqa: E402
 
@@ -273,3 +274,29 @@ async def test_user_needs_approval_is_honoured_when_gateway_allows():
     assert len(r.interruptions) == 1
     _, r = await run(ad, ident, [tool_call("echo", {"text": "ok"}, "c9c")], tools=(dyn_echo,))
     assert outputs(r) == ["echo:ok"]
+
+
+async def test_output_guards_rewrite_what_the_model_sees():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    _, r = await run(ad, ident, [tool_call("leak", {}, "c10")])
+    assert outputs(r) == ["ssn [REDACTED]"]
+
+
+async def test_direct_invoke_without_planning_step():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    gated = ad.gate_tool(echo)
+
+    def tctx(call_id: str, args: dict) -> ToolContext:
+        return ToolContext(
+            context=ident, usage=Usage(), tool_name="echo", tool_call_id=call_id, tool_arguments=json.dumps(args)
+        )
+
+    assert await gated.on_invoke_tool(tctx("d1", {"text": "hi"}), json.dumps({"text": "hi"})) == "echo:hi"
+    assert await gated.on_invoke_tool(tctx("d2", {"text": "raw:x"}), json.dumps({"text": "raw:x"})) == "echo:x"
+    err = json.loads(await gated.on_invoke_tool(tctx("d3", {"text": "risky"}), json.dumps({"text": "risky"})))
+    assert err["error"] == "approval_required" and err["retryable"] is True and err["approval_id"]
+    err = json.loads(await gated.on_invoke_tool(tctx("d4", {"text": "deny"}), json.dumps({"text": "deny"})))
+    assert err["error"] == "authorization_denied"
+    assert not ad._inflight
