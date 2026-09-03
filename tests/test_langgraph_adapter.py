@@ -17,6 +17,7 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 from langgraph.graph.message import add_messages  # noqa: E402
 from langgraph.prebuilt import ToolNode  # noqa: E402
+from langgraph.types import Command  # noqa: E402
 
 from agent_tool_gateway import (  # noqa: E402
     AgentIdentity,
@@ -28,6 +29,7 @@ from agent_tool_gateway import (  # noqa: E402
     ToolRegistry,
 )
 from agent_tool_gateway.adapters.langgraph import (  # noqa: E402
+    DENIED_MESSAGE,
     LangGraphAdapter,
     default_identity,
     manifest_from_tool,
@@ -210,3 +212,81 @@ def test_transform_rewrites_arguments():
     ad = LangGraphAdapter(gw)
     r = build(ad.tool_node(TOOLS), [("echo", {"text": "raw:hi"}, "c5")]).invoke(start(), cfg(ident, "t5"))
     assert tool_msgs(r) == [("echo:hi", "success")]
+
+
+def test_require_approval_interrupts_without_running_or_reserving():
+    gw, audit, ident = make(budget_limit_usd=0.05)
+    ad = LangGraphAdapter(gw)
+    r = build(ad.tool_node(TOOLS), [("pay", {"amount": 3}, "c6")]).invoke(start(), cfg(ident, "t6"))
+    (intr,) = r["__interrupt__"]
+    assert intr.value["tool"] == "pay" and intr.value["args"] == {"amount": 3} and intr.value["approval_id"]
+    assert intr.value["reason"] == "money" and intr.value["tool_call_id"] == "c6"
+    assert tool_msgs(r) == []
+    assert ident.session.budget_reserved_usd == 0.0 and len(ident.session.recent_calls) == 0
+    assert audit.events[-1].decision == "require_approval"
+
+
+def test_resume_true_runs_tool_and_settles_budget():
+    gw, audit, ident = make(budget_limit_usd=0.05)
+    ad = LangGraphAdapter(gw)
+    g = build(ad.tool_node(TOOLS), [("pay", {"amount": 3}, "c7")])
+    c = cfg(ident, "t7")
+    g.invoke(start(), c)
+    r = g.invoke(Command(resume=True), c)
+    assert tool_msgs(r) == [("paid:3", "success")] and final(r) == "done"
+    assert ident.session.budget_used_usd == pytest.approx(0.01) and ident.session.budget_reserved_usd == 0.0
+    assert len(ident.session.recent_calls) == 1
+    assert audit.events[-1].phase == "execution" and audit.events[-1].error_code is None
+
+
+def test_resume_after_budget_exhausted_denies():
+    gw, _, ident = make(budget_limit_usd=0.05)
+    ad = LangGraphAdapter(gw)
+    g = build(ad.tool_node(TOOLS), [("pay", {"amount": 3}, "c8")])
+    c = cfg(ident, "t8")
+    g.invoke(start(), c)
+    ident.session.budget_used_usd = 0.05
+    r = g.invoke(Command(resume=True), c)
+    ((content, status),) = tool_msgs(r)
+    assert status == "error" and json.loads(content)["error"] == "budget_exceeded"
+    assert len(ident.session.recent_calls) == 0
+
+
+def test_resume_false_and_resume_with_message_deny():
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+    g = build(ad.tool_node(TOOLS), [("echo", {"text": "risky"}, "c9")])
+    c = cfg(ident, "t9")
+    g.invoke(start(), c)
+    r = g.invoke(Command(resume=False), c)
+    assert tool_msgs(r) == [(DENIED_MESSAGE, "error")] and final(r) == "done"
+
+    g = build(ad.tool_node(TOOLS), [("echo", {"text": "risky"}, "c9b")])
+    c = cfg(ident, "t9b")
+    g.invoke(start(), c)
+    r = g.invoke(Command(resume={"approved": False, "message": "nope"}), c)
+    assert tool_msgs(r) == [("nope", "error")]
+    assert len(ident.session.recent_calls) == 0
+
+
+async def test_async_path_allow_and_approval_round_trip():
+    gw, _, ident = make(budget_limit_usd=0.05)
+    ad = LangGraphAdapter(gw)
+    r = await build(ad.tool_node(TOOLS), [("echo", {"text": "raw:hi"}, "c10")]).ainvoke(start(), cfg(ident, "t10"))
+    assert tool_msgs(r) == [("echo:hi", "success")]
+
+    g = build(ad.tool_node(TOOLS), [("pay", {"amount": 3}, "c11")])
+    c = cfg(ident, "t11")
+    r = await g.ainvoke(start(), c)
+    assert r["__interrupt__"][0].value["tool"] == "pay"
+    r = await g.ainvoke(Command(resume=True), c)
+    assert tool_msgs(r) == [("paid:3", "success")]
+    assert ident.session.budget_used_usd == pytest.approx(0.01)
+
+
+def test_identity_from_graph_context():
+    gw, audit, ident = make()
+    ad = LangGraphAdapter(gw)
+    g = build(ad.tool_node(TOOLS), [("echo", {"text": "hi"}, "c12")], context_schema=Identity)
+    r = g.invoke(start(), {"configurable": {"thread_id": "t12"}}, context=ident)
+    assert tool_msgs(r) == [("echo:hi", "success")] and audit.events[0].principal == "u"
