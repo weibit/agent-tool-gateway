@@ -216,3 +216,60 @@ def test_hosted_tools_pass_through_and_function_tools_are_copied():
     assert out[1] is ws and out[0] is not echo and out[0].name == "echo"
     assert callable(out[0].needs_approval)
     assert gate_tools(gw, [echo])[0].name == "echo"
+
+
+async def test_require_approval_interrupts_without_running_or_reserving():
+    gw, audit, ident = make(budget_limit_usd=0.05)
+    ad = OpenAIAgentsAdapter(gw)
+    _, r = await run(ad, ident, [tool_call("pay", {"amount": 3}, "c5")])
+    assert len(r.interruptions) == 1 and r.interruptions[0].tool_name == "pay"
+    assert outputs(r) == []
+    assert ident.session.budget_reserved_usd == 0.0 and len(ident.session.recent_calls) == 0
+    assert audit.events[-1].decision == "require_approval"
+    assert "c5" in ad._inflight
+
+
+async def test_approve_then_resume_runs_tool_and_settles_budget():
+    gw, audit, ident = make(budget_limit_usd=0.05)
+    ad = OpenAIAgentsAdapter(gw)
+    agent, r = await run(ad, ident, [tool_call("pay", {"amount": 3}, "c6")])
+    state = r.to_state()
+    state.approve(r.interruptions[0])
+    r2 = await Runner.run(agent, state, run_config=CFG)
+    assert outputs(r2) == ["paid:3"] and r2.final_output == "done"
+    assert ident.session.budget_used_usd == pytest.approx(0.01) and ident.session.budget_reserved_usd == 0.0
+    assert len(ident.session.recent_calls) == 1
+    assert audit.events[-1].phase == "execution" and audit.events[-1].error_code is None
+    assert "c6" not in ad._inflight
+
+
+async def test_reject_then_resume_does_not_run_and_cache_is_bounded():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw, max_inflight=1)
+    agent, r = await run(ad, ident, [tool_call("echo", {"text": "risky"}, "c7")])
+    state = r.to_state()
+    state.reject(r.interruptions[0], rejection_message="human said no")
+    r2 = await Runner.run(agent, state, run_config=CFG)
+    assert outputs(r2) == ["human said no"]
+    assert len(ident.session.recent_calls) == 0
+    assert "c7" in ad._inflight  # orphaned by the rejection...
+    _, r3 = await run(ad, ident, [tool_call("echo", {"text": "hi"}, "c8")])
+    assert outputs(r3) == ["echo:hi"]
+    assert "c7" not in ad._inflight and not ad._inflight  # ...and evicted by the bound
+
+
+async def test_user_needs_approval_is_honoured_when_gateway_allows():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    strict_echo = dataclasses.replace(echo, needs_approval=True)
+    _, r = await run(ad, ident, [tool_call("echo", {"text": "hi"}, "c9")], tools=(strict_echo,))
+    assert len(r.interruptions) == 1 and outputs(r) == []
+
+    async def user_rule(run_ctx, params, call_id):
+        return params.get("text") == "hi"
+
+    dyn_echo = dataclasses.replace(echo, needs_approval=user_rule)
+    _, r = await run(ad, ident, [tool_call("echo", {"text": "hi"}, "c9b")], tools=(dyn_echo,))
+    assert len(r.interruptions) == 1
+    _, r = await run(ad, ident, [tool_call("echo", {"text": "ok"}, "c9c")], tools=(dyn_echo,))
+    assert outputs(r) == ["echo:ok"]
