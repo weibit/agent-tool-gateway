@@ -13,7 +13,6 @@ agents = pytest.importorskip("agents")
 from agents import Agent, RunConfig, Runner, WebSearchTool, function_tool  # noqa: E402
 from agents.items import ModelResponse  # noqa: E402
 from agents.models.interface import Model  # noqa: E402
-from agents.tool_context import ToolContext  # noqa: E402
 from agents.usage import Usage  # noqa: E402
 from openai.types.responses import ResponseFunctionToolCall, ResponseOutputMessage, ResponseOutputText  # noqa: E402
 
@@ -158,3 +157,62 @@ def test_manifest_from_function_tool_copies_schema_and_applies_overrides():
     m2 = manifest_from_function_tool(echo, side_effect="write", required_scopes=["x"], cost_usd=0.5)
     assert m2.side_effect is SideEffect.WRITE and m2.required_scopes == frozenset({"x"}) and m2.cost_usd == 0.5
     assert m2.input_schema == m.input_schema
+
+
+async def test_allow_runs_tool_and_audits():
+    gw, audit, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    _, r = await run(ad, ident, [tool_call("echo", {"text": "hi"}, "c1")])
+    assert outputs(r) == ["echo:hi"] and r.final_output == "done"
+    assert [e.phase for e in audit.events] == ["decision", "execution"]
+    assert audit.events[0].decision == "allow" and audit.events[0].tool == "echo"
+    assert len(ident.session.recent_calls) == 1 and ident.session.turn == 1
+    assert not ad._inflight
+
+
+async def test_deny_returns_structured_error_to_model_and_run_continues():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    _, r = await run(ad, ident, [tool_call("echo", {"text": "deny"}, "c2")])
+    err = json.loads(outputs(r)[0])
+    assert err["error"] == "authorization_denied" and err["retryable"] is False
+    assert "denied text" in err["message"] and r.final_output == "done"
+
+
+async def test_schema_deny_is_retryable_invalid_arguments():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    _, r = await run(ad, ident, [tool_call("echo", {}, "c3")])
+    err = json.loads(outputs(r)[0])
+    assert err["error"] == "invalid_arguments" and err["retryable"] is True
+
+
+async def test_unregistered_tool_is_denied_not_crashed():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+
+    @function_tool
+    def mystery() -> str:
+        """Not in the registry."""
+        return "ran"
+
+    _, r = await run(ad, ident, [tool_call("mystery", {}, "c3b")], tools=(mystery,))
+    err = json.loads(outputs(r)[0])
+    assert err["error"] == "tool_not_registered" and r.final_output == "done"
+
+
+async def test_transform_rewrites_arguments():
+    gw, _, ident = make()
+    ad = OpenAIAgentsAdapter(gw)
+    _, r = await run(ad, ident, [tool_call("echo", {"text": "raw:hi"}, "c4")])
+    assert outputs(r) == ["echo:hi"]
+
+
+def test_hosted_tools_pass_through_and_function_tools_are_copied():
+    gw, _, _ = make()
+    ad = OpenAIAgentsAdapter(gw)
+    ws = WebSearchTool()
+    out = ad.gate_tools([echo, ws])
+    assert out[1] is ws and out[0] is not echo and out[0].name == "echo"
+    assert callable(out[0].needs_approval)
+    assert gate_tools(gw, [echo])[0].name == "echo"
