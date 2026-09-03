@@ -97,6 +97,25 @@ options = ClaudeAgentOptions(hooks=hooks)
 
 `DENY` → `permissionDecision: deny`, `REQUIRE_APPROVAL` → `ask`, `TRANSFORM` → `allow` + `updatedInput`. `PostToolUse` runs output guardrails and taint tagging and returns redacted/truncated content as `updatedToolOutput`; `PostToolUseFailure` releases the budget reservation. The SDK routes `ask` to your `can_use_tool` callback, so configure one or `ask` has nothing to answer it. See [`examples/claude_sdk_coding_agent.py`](examples/claude_sdk_coding_agent.py).
 
+### OpenAI Agents SDK adapter
+
+```python
+from agents import Agent, Runner
+from agent_tool_gateway.adapters.openai_agents import OpenAIAgentsAdapter, manifest_from_function_tool
+
+registry = ToolRegistry([manifest_from_function_tool(read_file, required_scopes=["fs:read"]),
+                         manifest_from_function_tool(send_email, side_effect="irreversible", risk_tier="high")])
+adapter = OpenAIAgentsAdapter(Gateway(registry, default_stages(policy)))
+
+agent = Agent(name="assistant", tools=adapter.gate_tools([read_file, send_email]))
+result = await Runner.run(agent, "...", context=Identity(principal, agent_id, session))  # any object with .principal/.agent/.session
+if result.interruptions:                       # REQUIRE_APPROVAL -> native ToolApprovalItem
+    state = result.to_state(); state.approve(result.interruptions[0])
+    result = await Runner.run(agent, state)
+```
+
+`DENY` returns the structured error to the model and the run continues; `TRANSFORM` rewrites the arguments the tool receives; `REQUIRE_APPROVAL` uses the SDK's `needs_approval` interruption so `RunState.approve` / `reject` work unchanged; output guards rewrite what the model sees. Hosted tools pass through untouched. Approve-and-resume works in-process today (`SessionState` is not yet serialisable).
+
 ## Loading tools on demand
 
 Production agents load tools you did not write, often hundreds of them from MCP servers. The registry resolves a name through layers, first hit wins: explicit manifests, then resolvers in order, then a global default.
@@ -122,7 +141,7 @@ Every manifest from a server carries `required_scopes={"mcp:<server>"}`, so a pr
 
 | Tier | Mechanism | Frameworks | Status |
 |---|---|---|---|
-| 1 | Native decision hooks | Claude Agent SDK; OpenAI Agents SDK (tool guardrails + approvals) | Claude ✅ · OpenAI planned |
+| 1 | Native decision hooks | Claude Agent SDK; OpenAI Agents SDK (`needs_approval` + wrapped invoke) | Claude ✅ · OpenAI ✅ |
 | 2 | Toolset wrappers | Pydantic AI, LangGraph, Strands, Agno, Google ADK | planned |
 | 3 | Function wrapping | anything that calls a Python callable | ✅ |
 
@@ -154,7 +173,7 @@ ruff check src tests
 
 ## Roadmap
 
-- [ ] OpenAI Agents SDK adapter (tool guardrails + `RunState` approvals)
+- [x] OpenAI Agents SDK adapter (`needs_approval` + `RunState` approvals)
 - [ ] Pydantic AI / LangGraph toolset adapters
 - [ ] Redis-backed limiter and shared session store
 - [ ] Cedar policy backend

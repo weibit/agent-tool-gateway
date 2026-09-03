@@ -30,7 +30,7 @@ Environment note: system `python3` is 3.9. Use the project venv created for this
 - Modify: `pyproject.toml`
 - Create: `tests/test_openai_agents_adapter.py`
 
-- [ ] **Step 1: Add the extra**
+- [x] **Step 1: Add the extra**
 
 In `pyproject.toml`, replace the optional-dependencies block with:
 
@@ -42,12 +42,12 @@ openai = ["openai-agents>=0.22,<0.23"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10", "jsonschema>=4.0", "openai-agents>=0.22,<0.23"]
 ```
 
-- [ ] **Step 2: Install it**
+- [x] **Step 2: Install it**
 
 Run: `uv pip install -e ".[dev]"` (or `pip install -e ".[dev]"`)
 Expected: `openai-agents` 0.22.x installed; `python -c "import agents; print(agents.__name__)"` prints `agents`.
 
-- [ ] **Step 3: Write the harness with one smoke test**
+- [x] **Step 3: Write the harness with one smoke test**
 
 Create `tests/test_openai_agents_adapter.py`:
 
@@ -196,12 +196,12 @@ async def test_harness_runs_without_gateway():
     assert outputs(r) == ["echo:hi"] and r.final_output == "done"
 ```
 
-- [ ] **Step 4: Run it**
+- [x] **Step 4: Run it**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: 1 error at collection: `ModuleNotFoundError: No module named 'agent_tool_gateway.adapters.openai_agents'`. That is the failing state for Task 2. (If the SDK were missing the whole file would skip instead.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml tests/test_openai_agents_adapter.py
@@ -218,7 +218,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `src/agent_tool_gateway/adapters/openai_agents.py`
 - Test: `tests/test_openai_agents_adapter.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_openai_agents_adapter.py`:
 
@@ -241,12 +241,12 @@ def test_manifest_from_function_tool_copies_schema_and_applies_overrides():
     assert m2.input_schema == m.input_schema
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: collection error, module missing.
 
-- [ ] **Step 3: Create the module with only these two functions**
+- [x] **Step 3: Create the module with only these two functions**
 
 Create `src/agent_tool_gateway/adapters/openai_agents.py`:
 
@@ -319,12 +319,12 @@ def manifest_from_function_tool(tool: Any, **overrides: Any) -> ToolManifest:
     return ToolManifest.from_dict(fields)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: the two new tests pass; `test_harness_runs_without_gateway` passes; collection fails on `OpenAIAgentsAdapter` / `gate_tools` import. To confirm just these two, temporarily run with `-k "identity or manifest"` after commenting nothing: the import error blocks the file, so instead verify by `python -c "from agent_tool_gateway.adapters.openai_agents import default_identity, manifest_from_function_tool; print('ok')"` → `ok`. The full file goes green in Task 3.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/agent_tool_gateway/adapters/openai_agents.py tests/test_openai_agents_adapter.py
@@ -341,7 +341,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `src/agent_tool_gateway/adapters/openai_agents.py`
 - Test: `tests/test_openai_agents_adapter.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_openai_agents_adapter.py`:
 
@@ -405,12 +405,12 @@ def test_hosted_tools_pass_through_and_function_tools_are_copied():
     assert gate_tools(gw, [echo])[0].name == "echo"
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: collection error `ImportError: cannot import name 'OpenAIAgentsAdapter'`.
 
-- [ ] **Step 3: Implement the adapter**
+- [x] **Step 3: Implement the adapter**
 
 Replace the `from __future__` line through the end of the imports block in `src/agent_tool_gateway/adapters/openai_agents.py` with:
 
@@ -565,17 +565,17 @@ def gate_tools(gateway: Gateway, tools: Sequence[Any], identity: IdentityProvide
 
 Note for the implementer: `DecisionResult` is imported for the type of `decision`; if ruff flags it unused, annotate `decision: DecisionResult` at first assignment in `invoke` rather than removing the import.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: all 9 tests pass. If `test_schema_deny_is_retryable_invalid_arguments` shows the SDK rejecting `{}` before the hook runs (output is not gateway JSON), change the call to `tool_call("echo", {"text": 5}, "c3")` — the type mismatch also fails the schema stage.
 
-- [ ] **Step 5: Lint and type-check**
+- [x] **Step 5: Lint and type-check**
 
 Run: `ruff check src tests examples && mypy src`
 Expected: both clean. If mypy complains about `decision` possibly unbound in `invoke`, add `decision: DecisionResult` before the `if ctx is None:` branch and assign in both branches (the code above already assigns in both).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent_tool_gateway/adapters/openai_agents.py tests/test_openai_agents_adapter.py
@@ -592,7 +592,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_openai_agents_adapter.py`
 - Modify (only if a test fails): `src/agent_tool_gateway/adapters/openai_agents.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Append to `tests/test_openai_agents_adapter.py`:
 
@@ -654,14 +654,14 @@ async def test_user_needs_approval_is_honoured_when_gateway_allows():
     assert outputs(r) == ["echo:ok"]
 ```
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: all pass with the Task 3 implementation. The spike verified interrupt → `to_state` → `approve` / `reject` → `Runner.run(agent, state)` with a replaced `on_invoke_tool` on SDK 0.22.0.
 
 If `test_approve_then_resume_runs_tool_and_settles_budget` fails on `budget_used_usd`, the `REQUIRE_APPROVAL` branch in `invoke` did not call `gateway.reserve(ctx)` before the tool ran; `after` settles only what was reserved.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_openai_agents_adapter.py src/agent_tool_gateway/adapters/openai_agents.py
@@ -678,7 +678,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_openai_agents_adapter.py`
 - Modify (only if a test fails): `src/agent_tool_gateway/adapters/openai_agents.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Append to `tests/test_openai_agents_adapter.py`:
 
@@ -709,17 +709,17 @@ async def test_direct_invoke_without_planning_step():
     assert not ad._inflight
 ```
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: `pytest tests/test_openai_agents_adapter.py -q`
 Expected: all pass. If `ToolContext(...)` rejects the keyword set, check `inspect.signature(ToolContext.__init__)`; on 0.22.0 the parameters are `context, usage, tool_name, tool_call_id, tool_arguments, ...` with the rest optional.
 
-- [ ] **Step 3: Run the whole suite plus lint and types**
+- [x] **Step 3: Run the whole suite plus lint and types**
 
 Run: `pytest -q && ruff check src tests examples && mypy src`
 Expected: all tests pass (77 existing + 16 new = 93), ruff clean, mypy clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add tests/test_openai_agents_adapter.py src/agent_tool_gateway/adapters/openai_agents.py
@@ -736,7 +736,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README adapter section**
+- [x] **Step 1: README adapter section**
 
 In `README.md`, directly after the "Claude Agent SDK adapter" block (the paragraph ending with the link to `examples/claude_sdk_coding_agent.py`), insert:
 
@@ -761,7 +761,7 @@ if result.interruptions:                       # REQUIRE_APPROVAL -> native Tool
 `DENY` returns the structured error to the model and the run continues; `TRANSFORM` rewrites the arguments the tool receives; `REQUIRE_APPROVAL` uses the SDK's `needs_approval` interruption so `RunState.approve` / `reject` work unchanged; output guards rewrite what the model sees. Hosted tools pass through untouched. Approve-and-resume works in-process today (`SessionState` is not yet serialisable).
 ````
 
-- [ ] **Step 2: README integration tier table and roadmap**
+- [x] **Step 2: README integration tier table and roadmap**
 
 Replace the tier-1 row:
 
@@ -771,7 +771,7 @@ Replace the tier-1 row:
 
 Replace the roadmap line `- [ ] OpenAI Agents SDK adapter (tool guardrails + `RunState` approvals)` with `- [x] OpenAI Agents SDK adapter (`needs_approval` + `RunState` approvals)`.
 
-- [ ] **Step 3: ARCHITECTURE adapter rules**
+- [x] **Step 3: ARCHITECTURE adapter rules**
 
 In `docs/ARCHITECTURE.md`, under "Adapter rules", replace item 3 with:
 
@@ -783,12 +783,12 @@ In `docs/ARCHITECTURE.md`, under "Adapter rules", replace item 3 with:
    `Gateway.reserve(ctx)` before execution so loop detection and budget accounting stay correct.
 ```
 
-- [ ] **Step 4: Verify docs render and nothing else broke**
+- [x] **Step 4: Verify docs render and nothing else broke**
 
 Run: `pytest -q && ruff check src tests examples && python examples/claude_sdk_coding_agent.py > /dev/null && echo ok`
 Expected: tests pass, ruff clean, `ok`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md

@@ -72,8 +72,10 @@ Everything else may change before 1.0.
 1. Adapters translate; they never contain policy.
 2. Adapters surface `model_message` / `to_model_result()` only. `audit_detail` goes to the sink.
 3. `REQUIRE_APPROVAL` maps to the framework's native approval mechanism where one exists
-   (Claude Agent SDK `ask`, OpenAI Agents SDK `RunState` interruption); otherwise to a
-   structured `approval_required` error the host application handles.
+   (Claude Agent SDK `ask` → `can_use_tool`; OpenAI Agents SDK `needs_approval` → `RunState`
+   interruption); otherwise to a structured `approval_required` error the host application handles.
+4. When the host grants an approval the gateway did not see start, the adapter calls
+   `Gateway.reserve(ctx)` before execution so loop detection and budget accounting stay correct.
 
 ## Out of scope
 
