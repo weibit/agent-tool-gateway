@@ -30,7 +30,7 @@ Environment: use the project venv (`uv venv --python 3.12`, `uv pip install -e "
 - Modify: `pyproject.toml`
 - Create: `tests/test_pydantic_ai_adapter.py`
 
-- [ ] **Step 1: Add the extra**
+- [x] **Step 1: Add the extra**
 
 In `pyproject.toml` replace the optional-dependencies block with:
 
@@ -46,12 +46,12 @@ dev = [
 ]
 ```
 
-- [ ] **Step 2: Install**
+- [x] **Step 2: Install**
 
 Run: `uv pip install -e ".[dev]"`
 Expected: `python -c "import importlib.metadata as m; print(m.version('pydantic-ai-slim'))"` prints `2.38.x`.
 
-- [ ] **Step 3: Write the harness with one smoke test**
+- [x] **Step 3: Write the harness with one smoke test**
 
 Create `tests/test_pydantic_ai_adapter.py`:
 
@@ -198,12 +198,12 @@ async def test_harness_runs_without_gateway():
     assert returns(r) == ["echo:hi"] and r.output == "done"
 ```
 
-- [ ] **Step 4: Run it**
+- [x] **Step 4: Run it**
 
 Run: `pytest tests/test_pydantic_ai_adapter.py -q`
 Expected: collection error `ModuleNotFoundError: No module named 'agent_tool_gateway.adapters.pydantic_ai'`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml tests/test_pydantic_ai_adapter.py
@@ -220,7 +220,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `src/agent_tool_gateway/adapters/pydantic_ai.py`
 - Test: `tests/test_pydantic_ai_adapter.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_pydantic_ai_adapter.py`:
 
@@ -295,12 +295,12 @@ async def test_transform_rewrites_arguments():
     assert returns(r) == ["echo:hi"]
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `pytest tests/test_pydantic_ai_adapter.py -q`
 Expected: collection error, module missing.
 
-- [ ] **Step 3: Create the module**
+- [x] **Step 3: Create the module**
 
 Create `src/agent_tool_gateway/adapters/pydantic_ai.py`:
 
@@ -445,17 +445,17 @@ def gate_toolset(
     return GatedToolset(toolset, gateway, identity)
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `pytest tests/test_pydantic_ai_adapter.py -q`
 Expected: 9 pass (or 8 pass and 1 skip if the SDK validates `{"text": 5}` before the toolset; the skip is acceptable and documents SDK behaviour).
 
-- [ ] **Step 5: Lint and type-check**
+- [x] **Step 5: Lint and type-check**
 
 Run: `ruff check src tests examples && mypy src`
 Expected: clean. Likely mypy notes: if `WrapperToolset[AgentDepsT]` generic subscripting complains, annotate `class GatedToolset(WrapperToolset[AgentDepsT])` exactly as above (it is how `ApprovalRequiredToolset` is declared in the SDK). If mypy cannot find stubs, `ignore_missing_imports` in `pyproject.toml` already covers it.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent_tool_gateway/adapters/pydantic_ai.py tests/test_pydantic_ai_adapter.py
@@ -472,7 +472,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_pydantic_ai_adapter.py`
 - Modify (only if a test fails): `src/agent_tool_gateway/adapters/pydantic_ai.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Append to `tests/test_pydantic_ai_adapter.py`:
 
@@ -548,14 +548,14 @@ async def test_budget_exhausted_while_pending_denies_on_resume():
     assert returns(r2)[-1]["error"] == "budget_exceeded"
 ```
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: `pytest tests/test_pydantic_ai_adapter.py -q`
 Expected: all pass. The spike verified `ApprovalRequired` → `DeferredToolRequests` → `DeferredToolResults(approvals=...)` re-entry with `tool_call_approved=True`, and `ToolDenied` not re-entering the toolset, on 2.38.0.
 
 If `test_approval_with_override_args_is_evaluated_on_overridden_args` fails because `tool_args` still carries the original args, check whether the SDK applies `override_args` before `call_tool` in this version; if it does not, drop the test and note it in the README section.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_pydantic_ai_adapter.py src/agent_tool_gateway/adapters/pydantic_ai.py
@@ -572,7 +572,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_pydantic_ai_adapter.py`
 - Modify (only if a test fails): `src/agent_tool_gateway/adapters/pydantic_ai.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Append to `tests/test_pydantic_ai_adapter.py`:
 
@@ -618,12 +618,12 @@ async def test_tool_exception_releases_reservation_and_propagates():
     assert ident.session.budget_reserved_usd == 0.0 and ident.session.budget_used_usd == 0.0
 ```
 
-- [ ] **Step 2: Run everything**
+- [x] **Step 2: Run everything**
 
 Run: `pytest -q && ruff check src tests examples && mypy src`
 Expected: all tests pass (92 existing + 18 new, one of which may skip), ruff and mypy clean.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_pydantic_ai_adapter.py src/agent_tool_gateway/adapters/pydantic_ai.py
@@ -640,7 +640,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README adapter section**
+- [x] **Step 1: README adapter section**
 
 In `README.md`, directly before the line `## Loading tools on demand`, insert:
 
@@ -663,7 +663,7 @@ if isinstance(result.output, DeferredToolRequests):              # REQUIRE_APPRO
 `DENY` is returned as the tool result (not `ModelRetry`, which would count against `max_retries`); `TRANSFORM` rewrites the arguments the tool receives; `REQUIRE_APPROVAL` raises `ApprovalRequired` and the approved re-entry is re-evaluated, so a budget that ran out while waiting still denies. Gate outermost: `PrefixedToolset` strips its prefix before delegating inward, so wrap `ts.prefixed("x")` rather than prefixing a gated toolset.
 ````
 
-- [ ] **Step 2: README tier table and roadmap**
+- [x] **Step 2: README tier table and roadmap**
 
 Replace the tier-2 row:
 
@@ -678,7 +678,7 @@ Replace `- [ ] Pydantic AI / LangGraph toolset adapters` with:
 - [ ] LangGraph toolset adapter
 ```
 
-- [ ] **Step 3: ARCHITECTURE adapter rule 3**
+- [x] **Step 3: ARCHITECTURE adapter rule 3**
 
 Replace the rule-3 text so it reads:
 
@@ -689,12 +689,12 @@ Replace the rule-3 text so it reads:
    structured `approval_required` error the host application handles.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `pytest -q && ruff check src tests examples && python examples/claude_sdk_coding_agent.py > /dev/null && echo ok`
 Expected: tests pass, ruff clean, `ok`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md

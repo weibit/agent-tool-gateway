@@ -73,9 +73,14 @@ Everything else may change before 1.0.
 2. Adapters surface `model_message` / `to_model_result()` only. `audit_detail` goes to the sink.
 3. `REQUIRE_APPROVAL` maps to the framework's native approval mechanism where one exists
    (Claude Agent SDK `ask` → `can_use_tool`; OpenAI Agents SDK `needs_approval` → `RunState`
-   interruption); otherwise to a structured `approval_required` error the host application handles.
-4. When the host grants an approval the gateway did not see start, the adapter calls
-   `Gateway.reserve(ctx)` before execution so loop detection and budget accounting stay correct.
+   interruption; Pydantic AI `ApprovalRequired` → `DeferredToolRequests`); otherwise to a
+   structured `approval_required` error the host application handles.
+4. On the approved re-entry the adapter calls `Gateway.before_approved(ctx)`, which re-runs the
+   pipeline with a one-shot approval for exactly this call. A REQUIRE_APPROVAL short-circuits
+   `before`, so this is what lets budget and rate-limit stages after it still deny, and it
+   reserves budget and records the call for loop detection. Where execution has already happened
+   when the adapter learns of the approval (Claude `PostToolUse`), it calls `Gateway.reserve(ctx)`
+   instead.
 
 ## Out of scope
 

@@ -116,6 +116,23 @@ if result.interruptions:                       # REQUIRE_APPROVAL -> native Tool
 
 `DENY` returns the structured error to the model and the run continues; `TRANSFORM` rewrites the arguments the tool receives; `REQUIRE_APPROVAL` uses the SDK's `needs_approval` interruption so `RunState.approve` / `reject` work unchanged; output guards rewrite what the model sees. Hosted tools pass through untouched. Approve-and-resume works in-process today (`SessionState` is not yet serialisable).
 
+### Pydantic AI adapter
+
+```python
+from pydantic_ai import Agent, DeferredToolRequests, DeferredToolResults
+from agent_tool_gateway.adapters.pydantic_ai import GatedToolset, manifest_from_tool_def
+
+agent = Agent("openai:gpt-5", toolsets=[GatedToolset(my_toolset, gw)], deps_type=Identity,
+              output_type=[str, DeferredToolRequests])          # DeferredToolRequests is required for approvals
+result = await agent.run("...", deps=Identity(principal, agent_id, session))
+if isinstance(result.output, DeferredToolRequests):              # REQUIRE_APPROVAL
+    ok = {c.tool_call_id: True for c in result.output.approvals}
+    result = await agent.run(message_history=result.all_messages(),
+                             deferred_tool_results=DeferredToolResults(approvals=ok), deps=...)
+```
+
+`DENY` is returned as the tool result (not `ModelRetry`, which would count against `max_retries`); `TRANSFORM` rewrites the arguments the tool receives; `REQUIRE_APPROVAL` raises `ApprovalRequired` and the approved re-entry is re-evaluated, so a budget that ran out while waiting still denies. Gate outermost: `PrefixedToolset` strips its prefix before delegating inward, so wrap `ts.prefixed("x")` rather than prefixing a gated toolset. Pydantic AI validates arguments before the toolset is reached, so its own retry prompt handles schema errors there.
+
 ## Loading tools on demand
 
 Production agents load tools you did not write, often hundreds of them from MCP servers. The registry resolves a name through layers, first hit wins: explicit manifests, then resolvers in order, then a global default.
@@ -142,7 +159,7 @@ Every manifest from a server carries `required_scopes={"mcp:<server>"}`, so a pr
 | Tier | Mechanism | Frameworks | Status |
 |---|---|---|---|
 | 1 | Native decision hooks | Claude Agent SDK; OpenAI Agents SDK (`needs_approval` + wrapped invoke) | Claude ✅ · OpenAI ✅ |
-| 2 | Toolset wrappers | Pydantic AI, LangGraph, Strands, Agno, Google ADK | planned |
+| 2 | Toolset wrappers | Pydantic AI, LangGraph, Strands, Agno, Google ADK | Pydantic AI ✅ · others planned |
 | 3 | Function wrapping | anything that calls a Python callable | ✅ |
 
 Hosted / provider-executed tools (server-side web search, hosted MCP connectors) never enter the process and are out of scope; govern those at the provider or MCP-gateway layer.
@@ -174,7 +191,8 @@ ruff check src tests
 ## Roadmap
 
 - [x] OpenAI Agents SDK adapter (`needs_approval` + `RunState` approvals)
-- [ ] Pydantic AI / LangGraph toolset adapters
+- [x] Pydantic AI toolset adapter (`GatedToolset` + `DeferredToolRequests` approvals)
+- [ ] LangGraph toolset adapter
 - [ ] Redis-backed limiter and shared session store
 - [ ] Cedar policy backend
 - [ ] Capability-token (macaroon-style) delegation across processes
