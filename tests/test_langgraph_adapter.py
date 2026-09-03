@@ -17,7 +17,6 @@ from langgraph.checkpoint.memory import InMemorySaver  # noqa: E402
 from langgraph.graph import END, START, StateGraph  # noqa: E402
 from langgraph.graph.message import add_messages  # noqa: E402
 from langgraph.prebuilt import ToolNode  # noqa: E402
-from langgraph.types import Command  # noqa: E402
 
 from agent_tool_gateway import (  # noqa: E402
     AgentIdentity,
@@ -29,7 +28,6 @@ from agent_tool_gateway import (  # noqa: E402
     ToolRegistry,
 )
 from agent_tool_gateway.adapters.langgraph import (  # noqa: E402
-    DENIED_MESSAGE,
     LangGraphAdapter,
     default_identity,
     manifest_from_tool,
@@ -146,3 +144,69 @@ def test_harness_runs_without_gateway():
     g = build(ToolNode(TOOLS), [("echo", {"text": "hi"}, "c0")])
     r = g.invoke(start(), cfg(ident, "t0"))
     assert tool_msgs(r) == [("echo:hi", "success")] and final(r) == "done"
+
+
+def test_default_identity_sources_and_error():
+    _, _, ident = make()
+    rt = SimpleNamespace(context=None, config={"configurable": {"gateway_identity": ident}})
+    assert default_identity(rt) == (ident.principal, ident.agent, ident.session)
+    rt = SimpleNamespace(context=ident, config={"configurable": {}})
+    assert default_identity(rt) == (ident.principal, ident.agent, ident.session)
+    with pytest.raises(RuntimeError, match="gateway_identity"):
+        default_identity(SimpleNamespace(context={"x": 1}, config={"configurable": {"thread_id": "t"}}))
+
+
+def test_manifest_from_tool_copies_schema_and_applies_overrides():
+    m = manifest_from_tool(echo)
+    assert m.name == "echo" and m.description == "Echo the text back."
+    assert m.input_schema["required"] == ["text"] and m.side_effect is SideEffect.READ
+    m2 = manifest_from_tool(echo, side_effect="write", required_scopes=["x"], cost_usd=0.5)
+    assert m2.side_effect is SideEffect.WRITE and m2.required_scopes == frozenset({"x"}) and m2.cost_usd == 0.5
+
+
+def test_allow_runs_tool_and_audits():
+    gw, audit, ident = make()
+    ad = LangGraphAdapter(gw)
+    r = build(ad.tool_node(TOOLS), [("echo", {"text": "hi"}, "c1")]).invoke(start(), cfg(ident, "t1"))
+    assert tool_msgs(r) == [("echo:hi", "success")] and final(r) == "done"
+    assert [e.phase for e in audit.events] == ["decision", "execution"]
+    assert audit.events[0].decision == "allow" and audit.events[0].tool == "echo"
+    assert len(ident.session.recent_calls) == 1 and ident.session.turn == 1
+
+
+def test_deny_returns_error_tool_message_and_run_continues():
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+    r = build(ad.tool_node(TOOLS), [("echo", {"text": "deny"}, "c2")]).invoke(start(), cfg(ident, "t2"))
+    ((content, status),) = tool_msgs(r)
+    err = json.loads(content)
+    assert status == "error" and err["error"] == "authorization_denied" and "denied text" in err["message"]
+    assert final(r) == "done"
+
+
+def test_schema_deny_is_retryable_invalid_arguments():
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+    r = build(ad.tool_node(TOOLS), [("echo", {}, "c3")]).invoke(start(), cfg(ident, "t3"))
+    err = json.loads(tool_msgs(r)[0][0])
+    assert err["error"] == "invalid_arguments" and err["retryable"] is True
+
+
+def test_unregistered_tool_is_denied_not_crashed():
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+
+    @tool
+    def mystery() -> str:
+        """Not in the registry."""
+        return "ran"
+
+    r = build(ad.tool_node([mystery]), [("mystery", {}, "c4")]).invoke(start(), cfg(ident, "t4"))
+    assert json.loads(tool_msgs(r)[0][0])["error"] == "tool_not_registered" and final(r) == "done"
+
+
+def test_transform_rewrites_arguments():
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+    r = build(ad.tool_node(TOOLS), [("echo", {"text": "raw:hi"}, "c5")]).invoke(start(), cfg(ident, "t5"))
+    assert tool_msgs(r) == [("echo:hi", "success")]
