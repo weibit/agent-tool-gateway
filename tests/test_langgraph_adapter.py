@@ -290,3 +290,52 @@ def test_identity_from_graph_context():
     g = build(ad.tool_node(TOOLS), [("echo", {"text": "hi"}, "c12")], context_schema=Identity)
     r = g.invoke(start(), {"configurable": {"thread_id": "t12"}}, context=ident)
     assert tool_msgs(r) == [("echo:hi", "success")] and audit.events[0].principal == "u"
+
+
+def test_output_guards_rewrite_what_the_model_sees():
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+    r = build(ad.tool_node(TOOLS), [("leak", {}, "c13")]).invoke(start(), cfg(ident, "t13"))
+    assert tool_msgs(r) == [("ssn [REDACTED]", "success")]
+
+
+def test_tool_exception_releases_reservation_and_propagates():
+    gw, _, ident = make(budget_limit_usd=0.05)
+    ad = LangGraphAdapter(gw)
+
+    @tool
+    def boom() -> str:
+        """Always fails."""
+        raise RuntimeError("kaboom")
+
+    gw.registry.register(manifest_from_tool(boom, cost_usd=0.01))
+    gw.stages[2].policy.allow("boom")
+    g = build(ad.tool_node([boom], handle_tool_errors=False), [("boom", {}, "c14")])
+    with pytest.raises(RuntimeError, match="kaboom"):
+        g.invoke(start(), cfg(ident, "t14"))
+    assert ident.session.budget_reserved_usd == 0.0 and ident.session.budget_used_usd == 0.0
+
+
+def test_create_agent_middleware_end_to_end():
+    pytest.importorskip("langchain")
+    from langchain.agents import create_agent
+    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+
+    class ScriptedChat(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):
+            return self
+
+    gw, _, ident = make()
+    ad = LangGraphAdapter(gw)
+    model = ScriptedChat(
+        responses=[
+            AIMessage(content="", tool_calls=[{"name": "echo", "args": {"text": "deny"}, "id": "m1"}]),
+            AIMessage(content="", tool_calls=[{"name": "echo", "args": {"text": "raw:hi"}, "id": "m2"}]),
+            AIMessage(content="done"),
+        ]
+    )
+    agent = create_agent(model, TOOLS, middleware=[ad.middleware()], checkpointer=InMemorySaver())
+    r = agent.invoke(start(), cfg(ident, "t15"))
+    msgs = tool_msgs(r)
+    assert json.loads(msgs[0][0])["error"] == "authorization_denied" and msgs[0][1] == "error"
+    assert msgs[1] == ("echo:hi", "success") and final(r) == "done"
