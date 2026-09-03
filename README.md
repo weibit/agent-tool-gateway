@@ -133,6 +133,24 @@ if isinstance(result.output, DeferredToolRequests):              # REQUIRE_APPRO
 
 `DENY` is returned as the tool result (not `ModelRetry`, which would count against `max_retries`); `TRANSFORM` rewrites the arguments the tool receives; `REQUIRE_APPROVAL` raises `ApprovalRequired` and the approved re-entry is re-evaluated, so a budget that ran out while waiting still denies. Gate outermost: `PrefixedToolset` strips its prefix before delegating inward, so wrap `ts.prefixed("x")` rather than prefixing a gated toolset. Pydantic AI validates arguments before the toolset is reached, so its own retry prompt handles schema errors there.
 
+### LangGraph / LangChain adapter
+
+```python
+from langgraph.types import Command
+from agent_tool_gateway.adapters.langgraph import LangGraphAdapter, manifest_from_tool
+
+adapter = LangGraphAdapter(gw)
+graph.add_node("tools", adapter.tool_node([read_file, send_email]))       # or create_react_agent(model, tools=adapter.tool_node(...))
+# LangChain create_agent: create_agent(model, tools, middleware=[adapter.middleware()], checkpointer=...)
+
+config = {"configurable": {"thread_id": "t1", "gateway_identity": Identity(principal, agent_id, session)}}
+result = graph.invoke(state, config)
+if result.get("__interrupt__"):                                           # REQUIRE_APPROVAL
+    result = graph.invoke(Command(resume=True), config)                   # or resume={"approved": False, "message": "..."}
+```
+
+`DENY` becomes an error `ToolMessage` carrying the structured error; `TRANSFORM` rewrites the arguments via `ToolCallRequest.override`; `REQUIRE_APPROVAL` calls `interrupt()`, so a checkpointer and `thread_id` are required, and the approved resume is re-evaluated (a budget that ran out while waiting still denies). Output guards rewrite `ToolMessage.content`. Identity can also come from the graph context (`context_schema` + `context=`).
+
 ## Loading tools on demand
 
 Production agents load tools you did not write, often hundreds of them from MCP servers. The registry resolves a name through layers, first hit wins: explicit manifests, then resolvers in order, then a global default.
@@ -159,7 +177,7 @@ Every manifest from a server carries `required_scopes={"mcp:<server>"}`, so a pr
 | Tier | Mechanism | Frameworks | Status |
 |---|---|---|---|
 | 1 | Native decision hooks | Claude Agent SDK; OpenAI Agents SDK (`needs_approval` + wrapped invoke) | Claude ✅ · OpenAI ✅ |
-| 2 | Toolset wrappers | Pydantic AI, LangGraph, Strands, Agno, Google ADK | Pydantic AI ✅ · others planned |
+| 2 | Toolset wrappers | Pydantic AI, LangGraph / LangChain, Strands, Agno, Google ADK | Pydantic AI ✅ · LangGraph ✅ · others planned |
 | 3 | Function wrapping | anything that calls a Python callable | ✅ |
 
 Hosted / provider-executed tools (server-side web search, hosted MCP connectors) never enter the process and are out of scope; govern those at the provider or MCP-gateway layer.
@@ -192,7 +210,7 @@ ruff check src tests
 
 - [x] OpenAI Agents SDK adapter (`needs_approval` + `RunState` approvals)
 - [x] Pydantic AI toolset adapter (`GatedToolset` + `DeferredToolRequests` approvals)
-- [ ] LangGraph toolset adapter
+- [x] LangGraph / LangChain adapter (`ToolNode.wrap_tool_call` + `interrupt` approvals)
 - [ ] Redis-backed limiter and shared session store
 - [ ] Cedar policy backend
 - [ ] Capability-token (macaroon-style) delegation across processes

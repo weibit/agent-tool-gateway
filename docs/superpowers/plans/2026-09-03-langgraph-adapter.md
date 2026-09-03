@@ -29,7 +29,7 @@ Environment: the project venv (`uv venv --python 3.12`, `uv pip install -e ".[de
 - Modify: `pyproject.toml`
 - Create: `tests/test_langgraph_adapter.py`
 
-- [ ] **Step 1: Add the extra**
+- [x] **Step 1: Add the extra**
 
 Replace the optional-dependencies block in `pyproject.toml` with:
 
@@ -47,12 +47,12 @@ dev = [
 ]
 ```
 
-- [ ] **Step 2: Install**
+- [x] **Step 2: Install**
 
 Run: `uv pip install -e ".[dev]"`
 Expected: `python -c "import langgraph, langchain; print('ok')"` prints `ok`.
 
-- [ ] **Step 3: Write the harness with one smoke test**
+- [x] **Step 3: Write the harness with one smoke test**
 
 Create `tests/test_langgraph_adapter.py`:
 
@@ -208,12 +208,12 @@ def test_harness_runs_without_gateway():
     assert tool_msgs(r) == [("echo:hi", "success")] and final(r) == "done"
 ```
 
-- [ ] **Step 4: Run it**
+- [x] **Step 4: Run it**
 
 Run: `pytest tests/test_langgraph_adapter.py -q`
 Expected: collection error `ModuleNotFoundError: No module named 'agent_tool_gateway.adapters.langgraph'`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add pyproject.toml tests/test_langgraph_adapter.py
@@ -230,7 +230,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `src/agent_tool_gateway/adapters/langgraph.py`
 - Test: `tests/test_langgraph_adapter.py`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Append to `tests/test_langgraph_adapter.py`:
 
@@ -301,12 +301,12 @@ def test_transform_rewrites_arguments():
     assert tool_msgs(r) == [("echo:hi", "success")]
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `pytest tests/test_langgraph_adapter.py -q`
 Expected: collection error, module missing.
 
-- [ ] **Step 3: Create the module**
+- [x] **Step 3: Create the module**
 
 Create `src/agent_tool_gateway/adapters/langgraph.py`:
 
@@ -552,17 +552,17 @@ class LangGraphAdapter:
         return ToolMessage(content=text, tool_call_id=tc["id"], name=tc["name"], status="error")
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `pytest tests/test_langgraph_adapter.py -q`
 Expected: 8 pass.
 
-- [ ] **Step 5: Lint and type-check**
+- [x] **Step 5: Lint and type-check**
 
 Run: `ruff check src tests examples && mypy src`
 Expected: clean. If mypy objects to the `type: ignore[type-arg]` as unused, delete that comment.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/agent_tool_gateway/adapters/langgraph.py tests/test_langgraph_adapter.py
@@ -579,7 +579,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_langgraph_adapter.py`
 - Modify (only if a test fails): `src/agent_tool_gateway/adapters/langgraph.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Append to `tests/test_langgraph_adapter.py`:
 
@@ -662,12 +662,12 @@ def test_identity_from_graph_context():
     assert tool_msgs(r) == [("echo:hi", "success")] and audit.events[0].principal == "u"
 ```
 
-- [ ] **Step 2: Run them**
+- [x] **Step 2: Run them**
 
 Run: `pytest tests/test_langgraph_adapter.py -q`
 Expected: all pass. The spike verified `interrupt` inside `wrap_tool_call`, `__interrupt__` in the invoke result, and `Command(resume=...)` re-running the wrapper on langgraph 1.2.11. If `test_identity_from_graph_context` fails because `runtime.context` is a dict rather than the dataclass, check how `context_schema` materialises the context in this version and adapt `default_identity` to also accept a mapping with the three keys.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_langgraph_adapter.py src/agent_tool_gateway/adapters/langgraph.py
@@ -684,7 +684,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Test: `tests/test_langgraph_adapter.py`
 - Modify (only if a test fails): `src/agent_tool_gateway/adapters/langgraph.py`
 
-- [ ] **Step 1: Write the tests**
+- [x] **Step 1: Write the tests**
 
 Append to `tests/test_langgraph_adapter.py`:
 
@@ -739,7 +739,7 @@ def test_create_agent_middleware_end_to_end():
     assert langchain is not None
 ```
 
-- [ ] **Step 2: Run everything**
+- [x] **Step 2: Run everything**
 
 Run: `pytest -q && ruff check src tests examples && mypy src`
 Expected: all pass (111 existing + 1 skipped + 17 new), ruff and mypy clean.
@@ -764,7 +764,7 @@ If `create_agent` rejects the fake model (e.g. requires a `profile` or a provide
 
 and note the reason in the test's docstring.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add tests/test_langgraph_adapter.py src/agent_tool_gateway/adapters/langgraph.py
@@ -781,7 +781,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `README.md`
 - Modify: `docs/ARCHITECTURE.md`
 
-- [ ] **Step 1: README adapter section**
+- [x] **Step 1: README adapter section**
 
 Directly before `## Loading tools on demand` in `README.md`, insert:
 
@@ -805,7 +805,7 @@ if result.get("__interrupt__"):                                           # REQU
 `DENY` becomes an error `ToolMessage` carrying the structured error; `TRANSFORM` rewrites the arguments via `ToolCallRequest.override`; `REQUIRE_APPROVAL` calls `interrupt()`, so a checkpointer and `thread_id` are required, and the approved resume is re-evaluated (a budget that ran out while waiting still denies). Output guards rewrite `ToolMessage.content`. Identity can also come from the graph context (`context_schema` + `context=`).
 ````
 
-- [ ] **Step 2: README tier table and roadmap**
+- [x] **Step 2: README tier table and roadmap**
 
 Replace the tier-2 row with:
 
@@ -815,7 +815,7 @@ Replace the tier-2 row with:
 
 Replace `- [ ] LangGraph toolset adapter` with `- [x] LangGraph / LangChain adapter (`ToolNode.wrap_tool_call` + `interrupt` approvals)`.
 
-- [ ] **Step 3: ARCHITECTURE adapter rule 3**
+- [x] **Step 3: ARCHITECTURE adapter rule 3**
 
 Replace the rule-3 text so it reads:
 
@@ -827,12 +827,12 @@ Replace the rule-3 text so it reads:
    application handles.
 ```
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `pytest -q && ruff check src tests examples && python examples/claude_sdk_coding_agent.py > /dev/null && echo ok`
 Expected: tests pass, ruff clean, `ok`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add README.md docs/ARCHITECTURE.md
