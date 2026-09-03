@@ -329,6 +329,25 @@ async def test_grant_approval_by_id():
     assert (await gw.before(other)).decision is Decision.REQUIRE_APPROVAL
 
 
+async def test_before_approved_runs_later_stages_and_leaves_no_approval_behind():
+    pol = RulePolicy().require_approval("pay", reason="money")
+    gw, _ = make(stages=default_stages(pol))
+    p, a, _ = ids()
+    s = SessionState(budget_limit_usd=0.05)
+    ctx = gw.build_context("pay", {}, principal=p, agent=a, session=s)
+    assert (await gw.before(ctx)).decision is Decision.REQUIRE_APPROVAL
+
+    d = await gw.before_approved(ctx)  # host approved: policy passes, budget stage now runs and reserves
+    assert d.decision is Decision.ALLOW and s.budget_reserved_usd == pytest.approx(0.01)
+    assert s.approvals == set()  # one-shot: nothing granted beyond this call
+    gw.release(ctx)
+
+    s.budget_used_usd = 0.05
+    d = await gw.before_approved(ctx)
+    assert d.decision is Decision.DENY and d.stage == "budget"
+    assert (await gw.before(ctx)).decision is Decision.REQUIRE_APPROVAL  # repeat still asks
+
+
 # ---------------------------------------------------- claude sdk adapter
 
 

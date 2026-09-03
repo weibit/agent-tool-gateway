@@ -183,14 +183,15 @@ class OpenAIAgentsAdapter:
                 return _error_json(e)
         else:
             decision = ctx.metadata.pop(_RESULT_KEY)
-            if decision.decision is Decision.DENY:
+            if decision.decision is Decision.REQUIRE_APPROVAL:
+                # The host approved via RunState.approve. Re-evaluate with a one-shot approval so
+                # the stages after the approving one (budget, rate limit, ...) still run.
+                decision = await self.gateway.before_approved(ctx)
+            if decision.blocked:
                 try:
                     Gateway.raise_for_decision(decision)
                 except GatewayError as e:
                     return _error_json(e)
-            elif decision.decision is Decision.REQUIRE_APPROVAL:
-                # The host approved via RunState.approve; the gateway never saw the call start.
-                self.gateway.reserve(ctx)
 
         payload = json.dumps(ctx.args, default=str) if decision.decision is Decision.TRANSFORM else args_json
         raw = await original_invoke(tool_ctx, payload)

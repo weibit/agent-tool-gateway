@@ -107,17 +107,20 @@ class GatedToolset(WrapperToolset[AgentDepsT]):
         except GatewayError as e:
             return e.to_model_result()
 
-        decision = await self.gateway.before(gw_ctx)
+        if ctx.tool_call_approved:
+            # The host approved via DeferredToolResults: evaluate with a one-shot approval so the
+            # stages after the approving one (budget, rate limit, ...) still run.
+            decision = await self.gateway.before_approved(gw_ctx)
+        else:
+            decision = await self.gateway.before(gw_ctx)
         gw_ctx.metadata[_DECISION_KEY] = decision.decision.value
-        if decision.decision is Decision.DENY:
+        if decision.decision is Decision.REQUIRE_APPROVAL and not ctx.tool_call_approved:
+            raise ApprovalRequired(metadata={"approval_id": decision.approval_id, "reason": decision.reason})
+        if decision.blocked:  # DENY, or a stage that still asks after the host approved (fail closed)
             try:
                 Gateway.raise_for_decision(decision)
             except GatewayError as e:
                 return e.to_model_result()
-        elif decision.decision is Decision.REQUIRE_APPROVAL:
-            if not ctx.tool_call_approved:
-                raise ApprovalRequired(metadata={"approval_id": decision.approval_id, "reason": decision.reason})
-            self.gateway.reserve(gw_ctx)  # the host approved via DeferredToolResults
 
         args = gw_ctx.args if decision.decision is Decision.TRANSFORM else tool_args
         try:

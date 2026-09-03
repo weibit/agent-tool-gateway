@@ -244,6 +244,19 @@ async def test_approve_then_resume_runs_tool_and_settles_budget():
     assert "c6" not in ad._inflight
 
 
+async def test_budget_exhausted_while_pending_denies_on_resume():
+    gw, _, ident = make(budget_limit_usd=0.05)
+    ad = OpenAIAgentsAdapter(gw)
+    agent, r = await run(ad, ident, [tool_call("pay", {"amount": 3}, "c6b")])
+    ident.session.budget_used_usd = 0.05  # spent elsewhere while waiting
+    state = r.to_state()
+    state.approve(r.interruptions[0])
+    r2 = await Runner.run(agent, state, run_config=CFG)
+    assert json.loads(outputs(r2)[0])["error"] == "budget_exceeded"
+    assert ident.session.budget_reserved_usd == 0.0 and len(ident.session.recent_calls) == 0
+    assert "pay:*" not in ident.session.approvals and not ident.session.approvals
+
+
 async def test_reject_then_resume_does_not_run_and_cache_is_bounded():
     gw, _, ident = make()
     ad = OpenAIAgentsAdapter(gw, max_inflight=1)

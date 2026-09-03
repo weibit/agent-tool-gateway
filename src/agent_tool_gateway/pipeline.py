@@ -184,6 +184,24 @@ class Gateway:
             self.reserve(ctx)
         return final
 
+    async def before_approved(self, ctx: ToolCallContext) -> DecisionResult:
+        """Re-run ``before`` after the host approved exactly this call.
+
+        A REQUIRE_APPROVAL short-circuits the pipeline, so stages after it (budget, rate
+        limit, ...) never ran. Adapters call this on the approved re-entry: the approval is
+        granted for this call only while the stages evaluate, then withdrawn, so the later
+        stages still get their say and a repeat of the same call asks again.
+        """
+        key = ctx.approval_key
+        added = key not in ctx.session.approvals
+        if added:
+            ctx.session.approvals.add(key)
+        try:
+            return await self.before(ctx)
+        finally:
+            if added:
+                ctx.session.approvals.discard(key)
+
     # ------------------------------------------------------------ accounting
     def reserve(self, ctx: ToolCallContext) -> None:
         """Mark the call as going ahead: loop-detection history plus a budget reservation.
