@@ -12,7 +12,7 @@ not consume quota.
 from __future__ import annotations
 
 from ..pipeline import Stage
-from .authz import PolicyStage, Rule, RulePolicy, SchemaStage, ScopeStage, grant_approval
+from .authz import PolicyStage, Rule, RulePolicy, SchemaStage, ScopeStage, grant_approval, grant_approval_by_id
 from .guardrails import (
     GuardrailStage,
     InputGuard,
@@ -45,6 +45,7 @@ __all__ = [
     "TokenBucketLimiter",
     "default_stages",
     "grant_approval",
+    "grant_approval_by_id",
     "no_secrets_in_args",
     "redact_pii",
 ]

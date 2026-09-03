@@ -1,11 +1,16 @@
-"""Input/output guardrails and taint propagation."""
+"""Input/output guardrails and taint propagation.
+
+Guards walk nested dict/list content, so structured tool results (the common
+shape for framework-native tools, e.g. ``{"stdout": ..., "stderr": ...}``) are
+covered as well as plain strings.
+"""
 
 from __future__ import annotations
 
-import json
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from typing import Any
 
 from ..context import ToolCallContext, ToolResult
 from ..decision import DecisionResult
@@ -39,47 +44,118 @@ class GuardrailStage(BaseStage):
         return result
 
 
+# ---- helpers ------------------------------------------------------------------
+
+
+def _map_strings(obj: Any, fn: Callable[[str], str]) -> Any:
+    """Return a copy of ``obj`` with ``fn`` applied to every string leaf. Never mutates the input."""
+    if isinstance(obj, str):
+        return fn(obj)
+    if isinstance(obj, dict):
+        return {k: _map_strings(v, fn) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_map_strings(v, fn) for v in obj]
+    if isinstance(obj, tuple):
+        return tuple(_map_strings(v, fn) for v in obj)
+    return obj
+
+
+def _iter_strings(obj: Any, key: str | None = None) -> Iterator[tuple[str | None, str]]:
+    """Yield ``(nearest_dict_key, string)`` for every string leaf."""
+    if isinstance(obj, str):
+        yield key, obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            yield from _iter_strings(v, str(k))
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _iter_strings(v, key)
+
+
 # ---- reference guards -------------------------------------------------------
 
-_SECRET_PATTERNS = [
-    re.compile(r"(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*\S+"),
-    re.compile(r"AKIA[0-9A-Z]{16}"),  # AWS access key id
-    re.compile(r"sk-[A-Za-z0-9]{20,}"),  # generic sk- style key
+# Argument names that hold credentials by convention. Deliberately excludes bare
+# "token" (pagination tokens, cancellation tokens) — inline values catch real ones.
+_SECRET_KEYS = re.compile(
+    r"(?i)^(?:api[_-]?key|secret|client[_-]?secret|password|passwd|access[_-]?token|auth[_-]?token|"
+    r"private[_-]?key|authorization)$"
+)
+_SECRET_VALUES = [
+    re.compile(r"(?i)\b(?:api[_-]?key|secret|token|password|passwd)\s*[:=]\s*\S+"),  # inline KEY=value
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),  # AWS access key id
+    re.compile(r"\bsk-(?:ant-)?[A-Za-z0-9_-]{20,}"),  # OpenAI / Anthropic style keys
+    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36}\b"),  # GitHub tokens
+    re.compile(r"(?i)\bbearer\s+[A-Za-z0-9._~+/-]{20,}=*"),
+    re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
 ]
-_PII_PATTERNS = [
-    re.compile(r"\b\d{3}-\d{2}-\d{4}\b"),  # US SSN
-    re.compile(r"\b(?:\d[ -]?){13,16}\b"),  # card-like number
-]
+_SECRET_MSG = "Arguments appear to contain a credential; remove it and retry."
+
+_SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")  # US SSN
+_CARD = re.compile(r"\b(?:\d[ -]?){12,18}\d\b")  # 13-19 digits, optional separators; Luhn-checked
 
 
 def no_secrets_in_args(ctx: ToolCallContext) -> str | None:
-    blob = json.dumps(ctx.args, default=str)
-    if any(p.search(blob) for p in _SECRET_PATTERNS):
-        return "Arguments appear to contain a credential; remove it and retry."
+    for key, value in _iter_strings(ctx.args):
+        if not value:
+            continue
+        if key is not None and _SECRET_KEYS.match(key):
+            return _SECRET_MSG
+        if any(p.search(value) for p in _SECRET_VALUES):
+            return _SECRET_MSG
     return None
 
 
+def _luhn_ok(digits: str) -> bool:
+    total = 0
+    for i, ch in enumerate(reversed(digits)):
+        d = int(ch)
+        if i % 2 == 1:
+            d *= 2
+            if d > 9:
+                d -= 9
+        total += d
+    return total % 10 == 0
+
+
+def _card_repl(m: re.Match[str]) -> str:
+    digits = re.sub(r"\D", "", m.group(0))
+    return "[REDACTED]" if 13 <= len(digits) <= 19 and _luhn_ok(digits) else m.group(0)
+
+
 def redact_pii(ctx: ToolCallContext, result: ToolResult) -> ToolResult:
-    if not isinstance(result.content, str):
-        return result
-    text = result.content
-    for p in _PII_PATTERNS:
-        text = p.sub("[REDACTED]", text)
-    if text != result.content:
+    changed = False
+
+    def scrub(text: str) -> str:
+        nonlocal changed
+        out = _CARD.sub(_card_repl, _SSN.sub("[REDACTED]", text))
+        if out != text:
+            changed = True
+        return out
+
+    result.content = _map_strings(result.content, scrub)
+    if changed:
         result.metadata["pii_redacted"] = True
-    result.content = text
     return result
 
 
 @dataclass
 class MaxOutputChars:
-    """Bound tool output so a single result cannot flood the context window."""
+    """Bound each string in a tool result so a single result cannot flood the context window."""
 
     limit: int = 20_000
 
     def __call__(self, ctx: ToolCallContext, result: ToolResult) -> ToolResult:
-        if isinstance(result.content, str) and len(result.content) > self.limit:
-            result.content = result.content[: self.limit] + f"\n...[truncated {len(result.content) - self.limit} chars]"
+        truncated = False
+
+        def cap(text: str) -> str:
+            nonlocal truncated
+            if len(text) <= self.limit:
+                return text
+            truncated = True
+            return text[: self.limit] + f"\n...[truncated {len(text) - self.limit} chars]"
+
+        result.content = _map_strings(result.content, cap)
+        if truncated:
             result.truncated = True
         return result
 
@@ -93,6 +169,9 @@ class TaintStage(BaseStage):
     after():  results from tools marked ``reaches_untrusted`` taint the session.
     before(): while tainted, side-effecting calls require approval (or are denied
               for IRREVERSIBLE tools when ``deny_irreversible`` is set).
+
+    Taint is sticky for the session; call ``SessionState.clear_taint()`` from the
+    host when a human has reviewed the untrusted content.
     """
 
     name = "taint"

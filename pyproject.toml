@@ -28,7 +28,7 @@ claude = ["claude-agent-sdk"]
 dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10", "jsonschema>=4.0"]
 
 [project.urls]
-Homepage = "https://github.com/<your-org>/agent-tool-gateway"
+Homepage = "https://github.com/weibit/agent-tool-gateway"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/agent_tool_gateway"]

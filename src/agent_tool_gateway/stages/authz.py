@@ -7,7 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..context import ToolCallContext
+from ..context import SessionState, ToolCallContext
 from ..decision import Decision, DecisionResult
 from ..pipeline import BaseStage
 
@@ -47,16 +47,24 @@ _JSON_TYPES: dict[str, tuple[type, ...]] = {
 
 
 def _validate(schema: dict[str, Any], args: dict[str, Any]) -> str | None:
+    """Return a model-facing validation message, or None when the args are valid.
+
+    A malformed *schema* (a manifest bug) raises, which the pipeline turns into a
+    fail-closed deny with the detail in the audit log rather than blaming the model.
+    """
     try:
-        import jsonschema  # type: ignore
-
-        jsonschema.validate(args, schema)
-        return None
+        import jsonschema
     except ImportError:
-        pass
-    except Exception as e:  # jsonschema.ValidationError
-        return getattr(e, "message", str(e))
+        return _validate_fallback(schema, args)
+    try:
+        jsonschema.validate(args, schema)
+    except jsonschema.ValidationError as e:
+        return str(e.message)
+    return None
 
+
+def _validate_fallback(schema: dict[str, Any], args: dict[str, Any]) -> str | None:
+    """Minimal required/type/additionalProperties check for the top level only."""
     for key in schema.get("required", []):
         if key not in args:
             return f"missing required field '{key}'"
@@ -87,15 +95,11 @@ class ScopeStage(BaseStage):
         missing = ctx.tool.required_scopes - ctx.effective_scopes
         if missing:
             return DecisionResult.deny(
-                f"Not authorized to use '{ctool(ctx)}'.",
+                f"Not authorized to use '{ctx.tool.name}'.",
                 stage=self.name,
                 missing_scopes=sorted(missing),
             )
         return None
-
-
-def ctool(ctx: ToolCallContext) -> str:
-    return ctx.tool.name
 
 
 # --------------------------------------------------------------------- policy
@@ -116,7 +120,8 @@ class Rule:
     priority: int = 0
 
     def matches(self, ctx: ToolCallContext) -> bool:
-        if not fnmatch.fnmatch(ctx.tool.name, self.tool):
+        # fnmatchcase: plain fnmatch is case-insensitive on Windows, which would make policy OS-dependent.
+        if not fnmatch.fnmatchcase(ctx.tool.name, self.tool):
             return False
         return True if self.when is None else bool(self.when(ctx))
 
@@ -190,11 +195,23 @@ class PolicyStage(BaseStage):
 
 def _approved(ctx: ToolCallContext) -> bool:
     """An approval is granted for (tool, args_hash); a wildcard approves the tool."""
-    return f"{ctx.tool.name}:{ctx.args_hash}" in ctx.session.approvals or f"{ctx.tool.name}:*" in ctx.session.approvals
+    return ctx.approval_key in ctx.session.approvals or f"{ctx.tool.name}:*" in ctx.session.approvals
 
 
 def grant_approval(ctx: ToolCallContext, *, any_args: bool = False) -> str:
     """Helper for adapters/UIs: record a human approval on the session."""
-    key = f"{ctx.tool.name}:*" if any_args else f"{ctx.tool.name}:{ctx.args_hash}"
+    key = f"{ctx.tool.name}:*" if any_args else ctx.approval_key
     ctx.session.approvals.add(key)
+    return key
+
+
+def grant_approval_by_id(session: SessionState, approval_id: str) -> str | None:
+    """Redeem the ``approval_id`` from a REQUIRE_APPROVAL decision.
+
+    Returns the approval key now granted, or None if the id is unknown (already
+    redeemed, expired from the bounded pending list, or from another session).
+    """
+    key = session.pending_approvals.pop(approval_id, None)
+    if key is not None:
+        session.approvals.add(key)
     return key

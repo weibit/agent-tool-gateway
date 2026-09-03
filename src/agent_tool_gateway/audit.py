@@ -54,6 +54,7 @@ class AuditEvent:
 
     @classmethod
     def from_decision(cls, ctx: ToolCallContext, result: DecisionResult, phase: str = "decision") -> AuditEvent:
+        details = result.details
         return cls.from_context(
             ctx,
             phase,
@@ -61,7 +62,9 @@ class AuditEvent:
             stage=result.stage,
             reason=result.reason,
             risk_score=result.risk_score,
-            extra=dict(result.details),
+            error_code=details.get("error"),
+            error_detail=details.get("_detail"),  # full-fidelity channel; underscore keys never reach ``extra``
+            extra={k: v for k, v in details.items() if not k.startswith("_")},
         )
 
 

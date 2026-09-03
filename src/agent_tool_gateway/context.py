@@ -77,9 +77,11 @@ class SessionState:
     turn: int = 0
     budget_limit_usd: float | None = None
     budget_used_usd: float = 0.0
+    budget_reserved_usd: float = 0.0  # reserved by calls in flight; settled or released by the gateway
     tainted: bool = False
     taint_sources: list[str] = field(default_factory=list)
-    approvals: set[str] = field(default_factory=set)  # approval ids granted by a human
+    approvals: set[str] = field(default_factory=set)  # approval keys ("tool:args_hash" / "tool:*") granted
+    pending_approvals: dict[str, str] = field(default_factory=dict)  # approval_id -> approval key
     recent_calls: deque[tuple[str, str, float]] = field(default_factory=lambda: deque(maxlen=256))
     metadata: dict[str, Any] = field(default_factory=dict)
 
@@ -118,6 +120,11 @@ class ToolCallContext:
     @property
     def effective_scopes(self) -> frozenset[str]:
         return self.principal.scopes & self.agent.effective_scopes
+
+    @property
+    def approval_key(self) -> str:
+        """What a human approves: this tool with exactly these arguments."""
+        return f"{self.tool.name}:{self.args_hash}"
 
 
 @dataclass

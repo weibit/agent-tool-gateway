@@ -35,7 +35,7 @@ class ToolRegistry:
         )
 
     def match(self, pattern: str) -> list[ToolManifest]:
-        return [m for n, m in self._tools.items() if fnmatch.fnmatch(n, pattern)]
+        return [m for n, m in self._tools.items() if fnmatch.fnmatchcase(n, pattern)]
 
     def __contains__(self, name: object) -> bool:
         return name in self._tools

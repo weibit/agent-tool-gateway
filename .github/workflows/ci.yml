@@ -1,14 +1,14 @@
 name: ci
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -16,5 +16,10 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
       - run: ruff check src tests examples
+      - run: mypy src
       - run: pytest -q
       - run: python examples/claude_sdk_coding_agent.py
+      - name: tests without jsonschema (exercise the fallback validator)
+        run: |
+          pip uninstall -y jsonschema
+          pytest -q

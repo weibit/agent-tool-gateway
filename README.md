@@ -30,7 +30,8 @@ An MCP gateway governs traffic between MCP clients and MCP servers. It is the ri
 - **Authority only attenuates.** `agent.spawn(...)` yields a child whose scopes are a strict subset of the parent's. Effective authority is `principal.scopes ∩ agent.effective_scopes`.
 - **Tool output is untrusted input.** Results from `reaches_untrusted` tools taint the session; subsequent side-effecting calls require approval. This is prompt-injection defense enforced in the loop, not in the prompt.
 - **Two error channels.** Every error has a model-safe message (structured, recoverable, non-leaking) and a full-fidelity audit detail. Adapters only ever surface the former.
-- **Fail closed, with dry-run.** A stage bug denies. `dry_run=True` logs shadow decisions without enforcing, for safe policy rollout.
+- **Fail closed, with dry-run.** A stage bug denies. `dry_run=True` logs shadow decisions (including rewrites) without enforcing anything, for safe policy rollout.
+- **Approvals are exact.** `REQUIRE_APPROVAL` carries an `approval_id`; redeeming it with `grant_approval_by_id` allows that tool with exactly those arguments and nothing else.
 - **Adapters translate; they never contain policy.** The same manifests and policy produce identical behavior in every framework.
 
 ## Quickstart
@@ -79,7 +80,10 @@ def read_file(path: str) -> str: ...
 with bind(principal=principal, agent=agent, session=session):
     read_file(path="README.md")          # runs the full pipeline
     read_file(path="/etc/passwd")        # -> {"error": "authorization_denied", "message": ..., "retryable": False}
+    read_file()                          # -> {"error": "invalid_arguments", ..., "retryable": True}
 ```
+
+Sync tools run in a worker thread so `timeout_s` applies to them; async tools are awaited directly.
 
 ### Claude Agent SDK adapter
 
@@ -91,7 +95,7 @@ hooks = build_hooks(gw, identity=lambda hook_input: (principal, agent, session))
 options = ClaudeAgentOptions(hooks=hooks)
 ```
 
-`DENY` → `permissionDecision: deny`, `REQUIRE_APPROVAL` → `ask`, `TRANSFORM` → `allow` + `updatedInput`. `PostToolUse` runs output guardrails and taint tagging. See [`examples/claude_sdk_coding_agent.py`](examples/claude_sdk_coding_agent.py).
+`DENY` → `permissionDecision: deny`, `REQUIRE_APPROVAL` → `ask`, `TRANSFORM` → `allow` + `updatedInput`. `PostToolUse` runs output guardrails and taint tagging and returns redacted/truncated content as `updatedToolOutput`; `PostToolUseFailure` releases the budget reservation. The SDK routes `ask` to your `can_use_tool` callback, so configure one or `ask` has nothing to answer it. See [`examples/claude_sdk_coding_agent.py`](examples/claude_sdk_coding_agent.py).
 
 ## Integration tiers
 
@@ -114,7 +118,7 @@ Hosted / provider-executed tools (server-side web search, hosted MCP connectors)
 | `RiskStage` | additive signals (tier, side effect, taint, depth, classification) → thresholds |
 | `GuardrailStage` | input guards (e.g. credentials in args), output guards (PII redaction, size cap) |
 | `LoopDetectStage` | deny the N-th identical call in a window |
-| `BudgetStage` | per-session cost ceiling |
+| `BudgetStage` | per-session cost ceiling; cost is reserved before execution and settled after, so parallel calls cannot overshoot |
 | `RateLimitStage` | token bucket keyed on (principal, agent, tool); swap in Redis for multi-process |
 
 Write your own by subclassing `BaseStage`. Policy backends (Cedar, OPA, CEL) implement `evaluate(ctx) -> DecisionResult`.

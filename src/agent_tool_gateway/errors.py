@@ -7,7 +7,6 @@ ever surface ``to_model_result()`` to the model.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -83,17 +82,3 @@ class ToolExecutionError(GatewayError):
             model_message=f"Tool '{tool_name}' failed to execute. You may retry or try another approach.",
             audit_detail=f"{type(exc).__name__}: {exc}",
         )
-
-
-@dataclass
-class ErrorEnvelope:
-    """Structured form handed to adapters that cannot raise (e.g. hook callbacks)."""
-
-    code: str
-    message: str
-    retryable: bool
-    extra: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_error(cls, err: GatewayError) -> ErrorEnvelope:
-        return cls(err.code, err.model_message, err.retryable, dict(err.extra))

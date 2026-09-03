@@ -98,7 +98,9 @@ def _run_sync(coro: Any) -> Any:
     except RuntimeError:
         return asyncio.run(coro)
     # Called from inside a running loop (e.g. a sync tool invoked by an async framework).
+    # Run on a private loop in a worker thread, carrying the caller's contextvars (bind()).
     import concurrent.futures
 
+    context = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(asyncio.run, coro).result()
+        return ex.submit(context.run, asyncio.run, coro).result()

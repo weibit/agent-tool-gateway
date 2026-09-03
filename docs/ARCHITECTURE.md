@@ -22,6 +22,12 @@ Evaluation is two-stage:
 
 A policy-level `REQUIRE_APPROVAL` short-circuits risk scoring; a granted approval is recorded on
 the session keyed by `(tool, args_hash)` so the exact call passes on retry and nothing else does.
+The decision's `approval_id` maps to that key in `session.pending_approvals`, so a UI can redeem it
+with `grant_approval_by_id` without reconstructing the call.
+
+Budget is two-phase: `before` reserves the tool's nominal cost, `after` settles it, and a failed
+execution (or the Claude SDK's `PostToolUseFailure`) releases it. `BudgetStage` counts reservations,
+so concurrent calls cannot overshoot the limit.
 
 ## Pipeline
 

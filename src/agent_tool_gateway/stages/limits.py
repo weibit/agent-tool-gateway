@@ -78,7 +78,8 @@ class RateLimitStage(BaseStage):
 
 
 class BudgetStage(BaseStage):
-    """Deny when the nominal cost of this call would exceed the session budget."""
+    """Deny when the nominal cost of this call, on top of spend and in-flight reservations,
+    would exceed the session budget."""
 
     name = "budget"
 
@@ -86,13 +87,14 @@ class BudgetStage(BaseStage):
         limit = ctx.session.budget_limit_usd
         if limit is None:
             return None
-        projected = ctx.session.budget_used_usd + ctx.tool.cost_usd
+        projected = ctx.session.budget_used_usd + ctx.session.budget_reserved_usd + ctx.tool.cost_usd
         if projected > limit:
             return DecisionResult.deny(
                 "Session budget exhausted; no further paid tool calls are allowed.",
                 stage=self.name,
                 error="budget_exceeded",
                 used=ctx.session.budget_used_usd,
+                reserved=ctx.session.budget_reserved_usd,
                 limit=limit,
             )
         return None
